@@ -1,0 +1,35 @@
+# A NUT server that a Synology NAS can use directly, without Home Assistant.
+#
+# On the Synology: Control Panel > Hardware & Power > UPS
+#   Enable UPS support, UPS type: "Synology UPS server", Network UPS server IP: <this device's IP>
+
+esphome:
+  name: ups-nut
+
+esp32:
+  board: esp32-s3-devkitc-1
+
+external_components:
+  - source: github://jamesgoodhouse/esphome-nut
+
+logger:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Synology stores the server's IP address, so keep it fixed
+  # (or reserve the address in your router instead)
+  manual_ip:
+    static_ip: 192.168.1.50
+    gateway: 192.168.1.1
+    subnet: 255.255.255.0
+
+ota:
+  - platform: esphome
+
+ups_hid:
+
+nut_server:
+  # Synology always connects with the UPS name "ups" and the login monuser / secret.
+  # This adds that login as a read-only user (it cannot force a shutdown).
+  synology_compatible: true

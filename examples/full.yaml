@@ -1,0 +1,90 @@
+# Every option, with its default where it has one.
+
+esphome:
+  name: ups-nut
+
+esp32:
+  board: esp32-s3-devkitc-1  # needs an ESP32-S2, S3 or P4 (a chip with USB host support)
+
+external_components:
+  - source: github://jamesgoodhouse/esphome-nut
+
+logger:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+ota:
+  - platform: esphome
+
+# Optional: Home Assistant connection. The NUT server keeps working when Home Assistant is down.
+api:
+
+ups_hid:
+  id: my_ups
+  update_interval: 15s  # how often to read the UPS; status changes the UPS pushes arrive immediately
+
+nut_server:
+  ups_hid_id: my_ups          # which UPS to serve (picked automatically when there is only one)
+  ups_name: ups               # clients connect to <ups_name>@<this device's IP>
+  ups_description: Rack UPS   # shown to clients; defaults to the UPS manufacturer and model
+  port: 3493
+  max_connections: 4
+  require_login: false        # false = anyone on the network can read UPS status (stock NUT behaviour)
+  users:
+    - username: upsmon
+      password: !secret nut_password
+      role: primary           # the one machine allowed to tell everyone else to shut down
+    - username: nas
+      password: !secret nut_nas_password
+      role: secondary         # monitors the UPS and shuts itself down (the default)
+  synology_compatible: false  # true adds Synology's built-in login monuser / secret (read-only)
+  # ESPHome normally reboots after 15 minutes without Home Assistant. That would interrupt
+  # UPS monitoring during an outage, so it is turned off unless you set this to true.
+  reboot_if_home_assistant_unreachable: false
+
+sensor:
+  - platform: ups_hid
+    battery_charge:
+      name: Battery charge
+    battery_runtime_remaining:
+      name: Battery runtime remaining
+    battery_voltage:
+      name: Battery voltage
+    wall_voltage:
+      name: Wall voltage
+    output_voltage:
+      name: Output voltage
+    wall_frequency:
+      name: Wall frequency
+    load_percent:
+      name: Load
+
+binary_sensor:
+  - platform: ups_hid
+    ups_connected:
+      name: UPS connected
+    on_battery:
+      name: On battery
+    charging:
+      name: Charging
+    low_battery:
+      name: Low battery
+    battery_needs_replacement:
+      name: Battery needs replacement
+    overloaded:
+      name: Overloaded
+
+text_sensor:
+  - platform: ups_hid
+    status:
+      name: Status
+    status_code:
+      name: Status code
+    manufacturer:
+      name: Manufacturer
+    model:
+      name: Model
+    serial_number:
+      name: Serial number
