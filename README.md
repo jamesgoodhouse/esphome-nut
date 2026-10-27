@@ -182,7 +182,7 @@ packages:
 
 substitutions:
   status_led_pin: GPIO48       # ESP32-S3-DevKitC-1 v1.0; v1.1 boards use GPIO38
-  status_led_brightness: "25"  # percent
+  status_led_brightness: "10"  # percent (default 10)
 ```
 
 | LED | Meaning |

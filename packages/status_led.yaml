@@ -21,7 +21,8 @@ substitutions:
   status_led_pin: GPIO48
   status_led_chipset: WS2812
   status_led_channel_colors: GRB
-  status_led_brightness: "25"   # percent, 1-100
+  status_led_brightness: "10"      # percent, 1-100
+  status_led_dim_brightness: "2"   # percent; the low point of the breathing effect
 
 light:
   - platform: esp32_rmt_led_strip
@@ -33,12 +34,15 @@ light:
     internal: true
     restore_mode: ALWAYS_OFF
     default_transition_length: 0s
+    # Linear brightness: with gamma correction, low levels look fully off and breathing looks like blinking
+    gamma_correct: 1.0
     effects:
+      # Never fully dark, so it reads as a smooth breath rather than a blink
       - pulse:
           name: Breathe
           transition_length: 1s
           update_interval: 1s
-          min_brightness: 0%
+          min_brightness: ${status_led_dim_brightness}%
           max_brightness: ${status_led_brightness}%
       - pulse:
           name: Slow blink
