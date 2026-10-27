@@ -250,12 +250,17 @@ bool HidDescriptor::parse(const uint8_t *data, size_t len, std::string *error) {
           logical_max = static_cast<int32_t>(global.logical_max_raw);
 
         uint32_t &bits = bits_for(report_key(rtype, global.report_id));
+        // "Constant" fields with a usage are real read-only values (nominal voltage, VA rating, ...);
+        // only usage-less constant fields are padding. A constant field's usages are not repeated
+        // over its count, since the extra slots are padding too.
         const bool constant = (value & FLAG_CONSTANT) != 0;
         for (uint32_t i = 0; i < global.report_count; i++) {
           uint32_t usage = 0;
-          if (!usages.empty())
-            usage = i < usages.size() ? usages[i] : usages.back();
-          if (!constant && usage != 0 && this->fields_.size() < MAX_FIELDS) {
+          if (i < usages.size())
+            usage = usages[i];
+          else if (!usages.empty() && !constant)
+            usage = usages.back();
+          if (usage != 0 && this->fields_.size() < MAX_FIELDS) {
             HidField field{};
             field.type = rtype;
             field.report_id = global.report_id;

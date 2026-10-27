@@ -163,6 +163,25 @@ TEST(parser_rejects_truncated_and_unbalanced_descriptors) {
   CHECK(!desc.parse(truncated, sizeof(truncated), &error));
 }
 
+TEST(parser_keeps_constant_fields_with_usages_but_not_padding) {
+  DescriptorBuilder d;
+  d.usage_page(0x84).usage(0x04).collection(0x01);
+  d.report_id(1).logical_min(0).logical_max(255).report_size(8).report_count(1);
+  d.usage(0x40).feature(0x03);       // ConfigVoltage, constant: a real read-only value
+  d.report_count(2).feature(0x03);   // padding: constant, no usage
+  d.report_count(1).usage(0x30).feature(0x02);  // Voltage, data
+  d.end_collection();
+  HidDescriptor desc;
+  CHECK(desc.parse(d.bytes.data(), d.bytes.size()));
+  CHECK_EQ(desc.fields().size(), size_t(2));
+  if (desc.fields().size() == 2) {
+    CHECK_EQ(desc.fields()[0].usage(), uint32_t(0x840040));
+    CHECK_EQ(desc.fields()[0].bit_offset, uint16_t(0));
+    CHECK_EQ(desc.fields()[1].usage(), uint32_t(0x840030));
+    CHECK_EQ(desc.fields()[1].bit_offset, uint16_t(24));  // after 8 bits of value and 16 of padding
+  }
+}
+
 TEST(extract_handles_bit_fields_and_signed_values) {
   esphome::ups_hid::HidField field{};
   field.bit_offset = 3;
@@ -315,9 +334,14 @@ TEST(tripp_lite_eco850lcd_exponent_quirk) {
   feed16(0x19, 602);   // input frequency
   feed16(0x1B, 1184);  // output voltage
   feed16(0x47, 76);    // real power, exponent 7
+  feed16(0x03, 850);   // VA rating, a "constant" feature field
+  const uint8_t input_nominal = 120;  // input nominal voltage, a "constant" 8-bit feature field
+  mapper.update_report(ReportType::FEATURE, 0x30, &input_nominal, 1);
 
   std::map<std::string, std::string> vars;
   mapper.build(&vars);
+  CHECK_EQ(vars["ups.power.nominal"], std::string("850"));
+  CHECK_EQ(vars["input.voltage.nominal"], std::string("120"));
   CHECK_EQ(vars["battery.voltage"], std::string("13.6"));
   CHECK_EQ(vars["battery.voltage.nominal"], std::string("12"));
   CHECK_EQ(vars["input.voltage"], std::string("119.5"));
