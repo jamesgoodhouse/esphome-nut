@@ -170,6 +170,49 @@ sensor:
 Every entity has an id (`ups_battery_charge`, `ups_on_battery`, `ups_status`, ...) for use in
 automations.
 
+### Status LED (optional)
+
+Many ESP32-S3 boards have an addressable RGB LED. Add the `status_led` package to show the UPS
+status on it:
+
+```yaml
+packages:
+  ups: github://jamesgoodhouse/esphome-nut/packages/ups.yaml@main
+  status_led: github://jamesgoodhouse/esphome-nut/packages/status_led.yaml@main
+
+substitutions:
+  status_led_pin: GPIO48       # ESP32-S3-DevKitC-1 v1.0; v1.1 boards use GPIO38
+  status_led_brightness: "25"  # percent
+```
+
+| LED | Meaning |
+|---|---|
+| blue, slow blink | No UPS connected |
+| red, fast blink | Battery low: computers are about to shut down |
+| orange, pulsing | On battery (wall power is out) |
+| red | Battery needs replacement, or the UPS is overloaded |
+| green, pulsing | On wall power, charging |
+| green | On wall power, battery full |
+
+For a different LED type, also set `status_led_chipset` (default `WS2812`) and
+`status_led_rgb_order` (default `GRB`). To change the colours, override the
+`ups_status_led_update` script in your own config.
+
+### Reacting to status changes
+
+`ups_hid` has an `on_status_change` automation. `status` is the NUT status code (`OL`,
+`OB DISCHRG`, `OL CHRG LB`, ...), or empty when no UPS is connected:
+
+```yaml
+ups_hid:
+  on_status_change:
+    - logger.log:
+        format: "UPS status is now %s"
+        args: [status.c_str()]
+```
+
+It adds to the package's own automations rather than replacing them.
+
 ### ESPHome entities without the package
 
 If you'd rather not use the package, add `external_components`, `ups_hid:` and `nut_server:`

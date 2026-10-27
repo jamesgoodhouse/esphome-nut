@@ -10,6 +10,7 @@
 
 #include "esphome/components/ups_common/ups_data.h"
 #include "esphome/components/usb_host/usb_host.h"
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/helpers.h"
@@ -72,6 +73,9 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
   void set_update_interval(uint32_t update_interval_ms) { this->update_interval_ms_ = update_interval_ms; }
 
   const ups_common::UpsSnapshot &get_ups_snapshot() const override { return this->snapshot_; }
+
+  /// Fires with the NUT status code (e.g. "OB DISCHRG") whenever it changes; empty when no UPS is connected.
+  Trigger<std::string> *get_status_change_trigger() { return &this->status_change_trigger_; }
 
   // Called from the usb_host task
   void on_control_complete(const usb_transfer_t *transfer);
@@ -170,6 +174,10 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
 
   ups_common::UpsSnapshot snapshot_;
   std::string last_status_;
+
+  Trigger<std::string> status_change_trigger_;
+  std::string notified_status_;
+  bool status_notified_{false};
 };
 
 }  // namespace esphome::ups_hid

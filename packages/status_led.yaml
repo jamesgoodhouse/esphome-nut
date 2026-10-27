@@ -1,0 +1,92 @@
+# Optional: show the UPS status on the board's RGB LED. Use together with ups.yaml:
+#
+#   packages:
+#     ups: github://jamesgoodhouse/esphome-nut/packages/ups.yaml@main
+#     status_led: github://jamesgoodhouse/esphome-nut/packages/status_led.yaml@main
+#
+#   substitutions:
+#     status_led_pin: GPIO48   # ESP32-S3-DevKitC-1 v1.0; v1.1 boards use GPIO38
+#
+# What the LED shows, most important first:
+#   blue, slow blink     no UPS connected
+#   red, fast blink      battery low: computers are about to shut down
+#   orange, pulsing      on battery (wall power is out)
+#   red                  battery needs replacement, or the UPS is overloaded
+#   green, pulsing       on wall power, charging
+#   green                on wall power, battery full
+#
+# To change colours or behaviour, override the ups_status_led_update script in your own config.
+
+substitutions:
+  status_led_pin: GPIO48
+  status_led_chipset: WS2812
+  status_led_rgb_order: GRB
+  status_led_brightness: "25"   # percent, 1-100
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: ups_status_led
+    pin: ${status_led_pin}
+    chipset: ${status_led_chipset}
+    rgb_order: ${status_led_rgb_order}
+    num_leds: 1
+    internal: true
+    restore_mode: ALWAYS_OFF
+    default_transition_length: 0s
+    effects:
+      - pulse:
+          name: Breathe
+          transition_length: 1s
+          update_interval: 1s
+          min_brightness: 0%
+          max_brightness: ${status_led_brightness}%
+      - pulse:
+          name: Slow blink
+          transition_length: 0s
+          update_interval: 1s
+          min_brightness: 0%
+          max_brightness: ${status_led_brightness}%
+      - pulse:
+          name: Fast blink
+          transition_length: 0s
+          update_interval: 250ms
+          min_brightness: 0%
+          max_brightness: ${status_led_brightness}%
+
+ups_hid:
+  on_status_change:
+    - script.execute:
+        id: ups_status_led_update
+        status: !lambda return status;
+
+script:
+  - id: ups_status_led_update
+    mode: restart
+    parameters:
+      status: string   # NUT status code, e.g. "OB DISCHRG"; empty when no UPS is connected
+    then:
+      - lambda: |-
+          const std::string padded = " " + status + " ";
+          auto has = [&padded](const char *token) {
+            return padded.find(std::string(" ") + token + " ") != std::string::npos;
+          };
+          float red = 0, green = 0, blue = 0;
+          const char *effect = "None";
+          if (status.empty()) {
+            blue = 1; effect = "Slow blink";
+          } else if (has("LB") || has("FSD")) {
+            red = 1; effect = "Fast blink";
+          } else if (has("OB")) {
+            red = 1; green = 0.35f; effect = "Breathe";
+          } else if (has("RB") || has("OVER")) {
+            red = 1;
+          } else if (has("CHRG")) {
+            green = 1; effect = "Breathe";
+          } else {
+            green = 1;
+          }
+          auto call = id(ups_status_led).turn_on();
+          call.set_rgb(red, green, blue);
+          call.set_brightness(${status_led_brightness} / 100.0f);
+          call.set_effect(effect);
+          call.perform();

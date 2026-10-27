@@ -321,6 +321,17 @@ void UpsHid::loop() {
     this->poll_next_report_();
   }
 
+  // Notify automations of status changes. Done from loop() so the first "no UPS" notification happens
+  // after every component (e.g. a status LED) has finished setup.
+  static const std::string NO_STATUS;
+  auto it = this->snapshot_.vars.find("ups.status");
+  const std::string &status = this->snapshot_.connected && it != this->snapshot_.vars.end() ? it->second : NO_STATUS;
+  if (!this->status_notified_ || status != this->notified_status_) {
+    this->status_notified_ = true;
+    this->notified_status_ = status;
+    this->status_change_trigger_.trigger(status);
+  }
+
   if (this->snapshot_.connected) {
     const bool stale = now - this->last_data_ms_ > this->stale_after_ms_();
     if (stale != this->snapshot_.stale) {

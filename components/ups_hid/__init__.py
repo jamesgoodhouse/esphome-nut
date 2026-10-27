@@ -1,5 +1,6 @@
 """Read a USB UPS (HID Power Device class) from an ESP32 with a USB host port."""
 
+from esphome import automation
 import esphome.codegen as cg
 from esphome.components import esp32
 from esphome.components.ups_common import UpsSource
@@ -14,6 +15,7 @@ AUTO_LOAD = ["usb_host", "ups_common"]
 MULTI_CONF = False
 
 CONF_UPS_HID_ID = "ups_hid_id"
+CONF_ON_STATUS_CHANGE = "on_status_change"
 
 ups_hid_ns = cg.esphome_ns.namespace("ups_hid")
 UpsHid = ups_hid_ns.class_("UpsHid", USBClient, UpsSource)
@@ -61,6 +63,9 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(
                 CONF_UPDATE_INTERVAL, default="15s"
             ): cv.positive_time_period_milliseconds,
+            # Runs with `status` set to the NUT status code ("OL CHRG", "OB DISCHRG", ...)
+            # whenever it changes, and with an empty string when no UPS is connected.
+            cv.Optional(CONF_ON_STATUS_CHANGE): automation.validate_automation(),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     _require_usb_host_chip,
@@ -71,3 +76,7 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     cg.add(var.set_update_interval(config[CONF_UPDATE_INTERVAL]))
+    for conf in config.get(CONF_ON_STATUS_CHANGE, []):
+        await automation.build_automation(
+            var.get_status_change_trigger(), [(cg.std_string, "status")], conf
+        )
