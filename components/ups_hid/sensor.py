@@ -2,6 +2,7 @@ import esphome.codegen as cg
 from esphome.components import sensor
 import esphome.config_validation as cv
 from esphome.const import (
+    CONF_ID,
     DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_DURATION,
     DEVICE_CLASS_FREQUENCY,
@@ -69,6 +70,8 @@ SENSORS = {
 
 CONFIG_SCHEMA = cv.Schema(
     {
+        # Optional name for this block, so packages can be customised with !extend / !remove
+        cv.Optional(CONF_ID): cv.string_strict,
         cv.GenerateID(CONF_UPS_HID_ID): cv.use_id(UpsHid),
         **{cv.Optional(key): schema for key, schema in SENSORS.items()},
     }

@@ -36,8 +36,9 @@ esphome:
 esp32:
   board: esp32-s3-devkitc-1
 
-external_components:
-  - source: github://jamesgoodhouse/esphome-nut
+# Everything UPS-related: reading the UPS, the NUT server, and all entities
+packages:
+  ups: github://jamesgoodhouse/esphome-nut/packages/ups.yaml@main
 
 logger:
 
@@ -48,14 +49,15 @@ wifi:
 ota:
   - platform: esphome
 
-ups_hid:
-
 nut_server:
   users:
     - username: upsmon
       password: !secret nut_password
       role: primary
 ```
+
+The package sets everything up. Anything you add under `ups_hid:` or `nut_server:` is merged
+with it (see [Customising the package](#customising-the-package)).
 
 Flash it, plug in the UPS, and check the logs:
 
@@ -149,7 +151,29 @@ leave out `api:` entirely, there is nothing to turn off.
 There are no default users. With no users, read-only tools like `upsc` and Home Assistant still
 work, but `upsmon` needs a login.
 
-### ESPHome entities (optional)
+### Customising the package
+
+```yaml
+substitutions:
+  ups_prefix: Office UPS        # entity names become "Office UPS Battery charge", ...
+
+nut_server:
+  synology_compatible: true     # any ups_hid / nut_server option is merged in
+
+sensor:
+  - id: !extend ups_sensors     # also ups_binary_sensors, ups_text_sensors
+    wall_frequency: !remove     # drop an entity you don't want
+
+# nut_server: !remove           # sensors only, no NUT server
+```
+
+Every entity has an id (`ups_battery_charge`, `ups_on_battery`, `ups_status`, ...) for use in
+automations.
+
+### ESPHome entities without the package
+
+If you'd rather not use the package, add `external_components`, `ups_hid:` and `nut_server:`
+yourself (see [examples/full.yaml](examples/full.yaml)) and list the entities you want:
 
 ```yaml
 sensor:
@@ -224,3 +248,13 @@ make -C tests
 
 Real descriptor dumps saved as `tests/fixtures/<name>.hex` (whitespace-separated hex bytes) are
 picked up by the tests automatically.
+
+To try local changes on a device while using the package, add a local source. It takes precedence
+over the GitHub copy the package pulls in:
+
+```yaml
+external_components:
+  - source:
+      type: local
+      path: /path/to/esphome-nut/components
+```

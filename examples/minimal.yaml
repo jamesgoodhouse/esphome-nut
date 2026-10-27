@@ -1,4 +1,4 @@
-# The smallest useful setup: a NUT server for a USB UPS.
+# The smallest useful setup: a NUT server for a USB UPS, plus ESPHome entities for every value.
 # NUT clients (Linux upsmon, TrueNAS, Home Assistant, ...) connect to ups@<this device's IP>.
 # Home Assistant is not required.
 
@@ -8,8 +8,8 @@ esphome:
 esp32:
   board: esp32-s3-devkitc-1  # needs an ESP32-S2, S3 or P4 (a chip with USB host support)
 
-external_components:
-  - source: github://jamesgoodhouse/esphome-nut
+packages:
+  ups: github://jamesgoodhouse/esphome-nut/packages/ups.yaml@main
 
 logger:
 
@@ -20,10 +20,6 @@ wifi:
 ota:
   - platform: esphome
 
-# Reads the UPS plugged into the ESP32's USB port
-ups_hid:
-
-# Serves it to NUT clients on port 3493
 nut_server:
   users:
     - username: upsmon

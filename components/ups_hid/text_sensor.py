@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 from esphome.components import text_sensor
 import esphome.config_validation as cv
-from esphome.const import ENTITY_CATEGORY_DIAGNOSTIC
+from esphome.const import CONF_ID, ENTITY_CATEGORY_DIAGNOSTIC
 
 from . import CONF_UPS_HID_ID, UpsHid
 
@@ -25,6 +25,8 @@ TEXT_SENSORS = {
 
 CONFIG_SCHEMA = cv.Schema(
     {
+        # Optional name for this block, so packages can be customised with !extend / !remove
+        cv.Optional(CONF_ID): cv.string_strict,
         cv.GenerateID(CONF_UPS_HID_ID): cv.use_id(UpsHid),
         **{cv.Optional(key): schema for key, schema in TEXT_SENSORS.items()},
     }

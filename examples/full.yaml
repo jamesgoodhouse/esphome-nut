@@ -1,4 +1,5 @@
-# Every option, with its default where it has one.
+# Every option, with its default where it has one, written out by hand instead of using
+# packages/ups.yaml. Use this as a reference; the package is the easier way to get started.
 
 esphome:
   name: ups-nut
