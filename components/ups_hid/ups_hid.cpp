@@ -689,6 +689,14 @@ bool UpsHid::run_command(const std::string &name) {
     ESP_LOGW(TAG, "Ignoring UPS command %s: too many commands waiting", name.c_str());
     return false;
   }
+  if (name == "beeper.mute") {
+    // "Muted" means enabled but silenced for now, so muting a disabled beeper would turn it back on
+    auto beeper = this->snapshot_.vars.find("ups.beeper.status");
+    if (beeper != this->snapshot_.vars.end() && beeper->second == "disabled") {
+      ESP_LOGI(TAG, "Beeper is disabled, so there is nothing to mute");
+      return true;
+    }
+  }
   PendingWrite write{name, {}, {}};
   if (!this->mapper_.build_command(name, &write.report, &write.payload)) {
     ESP_LOGW(TAG, "This UPS does not support the command %s", name.c_str());
