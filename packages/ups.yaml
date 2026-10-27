@@ -4,21 +4,20 @@
 #   packages:
 #     ups: github://jamesgoodhouse/esphome-nut/packages/ups.yaml@main
 #
+# Entities are named plainly ("Battery charge"); Home Assistant shows them under the device name.
+#
 # Customise from your own config:
-#   substitutions:
-#     ups_prefix: Office UPS          # prefix for every entity name
 #   nut_server:
 #     synology_compatible: true       # any nut_server / ups_hid option can be added
 #   sensor:
 #     - id: !extend ups_sensors
 #       wall_frequency: !remove       # drop an entity you don't want
+#       load_percent:
+#         name: UPS load              # rename one
 #   nut_server: !remove               # sensors only, no NUT server
 #
 # Developing locally? Add your own external_components entry with `type: local`;
 # it takes precedence over the GitHub copy below.
-
-substitutions:
-  ups_prefix: UPS
 
 external_components:
   - source: github://jamesgoodhouse/esphome-nut@main
@@ -33,63 +32,63 @@ sensor:
     id: ups_sensors
     battery_charge:
       id: ups_battery_charge
-      name: ${ups_prefix} Battery charge
+      name: Battery charge
     battery_runtime_remaining:
       id: ups_battery_runtime_remaining
-      name: ${ups_prefix} Battery runtime remaining
+      name: Battery runtime remaining
     battery_voltage:
       id: ups_battery_voltage
-      name: ${ups_prefix} Battery voltage
+      name: Battery voltage
     wall_voltage:
       id: ups_wall_voltage
-      name: ${ups_prefix} Wall voltage
+      name: Wall voltage
     output_voltage:
       id: ups_output_voltage
-      name: ${ups_prefix} Output voltage
+      name: Output voltage
     wall_frequency:
       id: ups_wall_frequency
-      name: ${ups_prefix} Wall frequency
+      name: Wall frequency
     load_percent:
       id: ups_load_percent
-      name: ${ups_prefix} Load
+      name: Load
 
 binary_sensor:
   - platform: ups_hid
     id: ups_binary_sensors
     ups_connected:
       id: ups_connected
-      name: ${ups_prefix} Connected
+      name: UPS connected
     on_battery:
       id: ups_on_battery
-      name: ${ups_prefix} On battery
+      name: On battery
     charging:
       id: ups_charging
-      name: ${ups_prefix} Charging
+      name: Charging
     low_battery:
       id: ups_low_battery
-      name: ${ups_prefix} Low battery
+      name: Low battery
     battery_needs_replacement:
       id: ups_battery_needs_replacement
-      name: ${ups_prefix} Battery needs replacement
+      name: Battery needs replacement
     overloaded:
       id: ups_overloaded
-      name: ${ups_prefix} Overloaded
+      name: Overloaded
 
 text_sensor:
   - platform: ups_hid
     id: ups_text_sensors
     status:
       id: ups_status
-      name: ${ups_prefix} Status
+      name: Status
     status_code:
       id: ups_status_code
-      name: ${ups_prefix} Status code
+      name: Status code
     manufacturer:
       id: ups_manufacturer
-      name: ${ups_prefix} Manufacturer
+      name: Manufacturer
     model:
       id: ups_model
-      name: ${ups_prefix} Model
+      name: Model
     serial_number:
       id: ups_serial_number
-      name: ${ups_prefix} Serial number
+      name: Serial number

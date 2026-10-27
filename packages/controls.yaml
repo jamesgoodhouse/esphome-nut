@@ -7,9 +7,6 @@
 # Adds a beeper switch, a "mute alarm" button, a battery self-test button and the self-test result.
 # NUT clients can run the same commands only if their user has `allow_commands: true` under nut_server.
 
-substitutions:
-  ups_prefix: UPS
-
 ups_hid:
   allow_control: true
 
@@ -18,21 +15,21 @@ switch:
     id: ups_switches
     beeper:
       id: ups_beeper
-      name: ${ups_prefix} Beeper
+      name: Beeper
 
 button:
   - platform: ups_hid
     id: ups_buttons
     mute_beeper:
       id: ups_mute_beeper
-      name: ${ups_prefix} Mute alarm
+      name: Mute alarm
     battery_self_test:
       id: ups_battery_self_test
-      name: ${ups_prefix} Battery self-test
+      name: Battery self-test
 
 text_sensor:
   - platform: ups_hid
     id: ups_control_text_sensors
     self_test_result:
       id: ups_self_test_result
-      name: ${ups_prefix} Self-test result
+      name: Self-test result

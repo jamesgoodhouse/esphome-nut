@@ -23,6 +23,8 @@ CONFIG_SCHEMA = cv.Schema(
             UpsHidBeeperSwitch,
             icon="mdi:volume-high",
             entity_category=ENTITY_CATEGORY_CONFIG,
+            # The UPS remembers the setting itself; restoring from flash would resend stale commands
+            default_restore_mode="DISABLED",
         ),
     }
 )

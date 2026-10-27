@@ -166,7 +166,6 @@ void UpsHid::on_disconnected() {
   this->report_descriptor_length_ = 0;
   this->polled_reports_.clear();
   this->pending_writes_.clear();
-  this->poll_soon_ = false;
   this->last_test_result_.clear();
   this->raw_descriptor_.clear();
   this->mapper_.clear_reports();
@@ -323,9 +322,7 @@ void UpsHid::loop() {
   const uint32_t now = millis();
   if (this->phase_ == Phase::IDLE && !this->pending_writes_.empty() && !this->control_busy_.load())
     this->start_write_();
-  if (this->phase_ == Phase::IDLE &&
-      (this->poll_soon_ || now - this->last_poll_start_ms_ >= this->update_interval_ms_)) {
-    this->poll_soon_ = false;
+  if (this->phase_ == Phase::IDLE && now - this->last_poll_start_ms_ >= this->update_interval_ms_) {
     this->phase_ = Phase::POLLING;
     this->poll_index_ = 0;
     this->round_had_data_ = false;
@@ -378,16 +375,24 @@ void UpsHid::handle_control_result_() {
     case Phase::POLLING:
       this->handle_report_(ok, data, len);
       break;
-    case Phase::WRITING:
+    case Phase::WRITING: {
+      const PendingWrite &write = this->current_write_;
       if (ok) {
-        ESP_LOGI(TAG, "UPS command %s done", this->current_write_.c_str());
+        ESP_LOGI(TAG, "UPS command %s done", write.command.c_str());
+        // Show what the UPS accepted straight away; reading it back immediately can return the old value
+        this->mapper_.update_report(write.report.type, write.report.id, write.payload.data(), write.payload.size());
+        this->rebuild_snapshot_();
+        this->publish_entities_(false);
       } else {
-        ESP_LOGW(TAG, "UPS rejected command %s (USB status %d)", this->current_write_.c_str(),
+        ESP_LOGW(TAG, "UPS rejected command %s (USB status %d)", write.command.c_str(),
                  static_cast<int>(this->control_transfer_->status));
       }
       this->phase_ = Phase::IDLE;
-      this->poll_soon_ = true;  // read back the new state
+      // Read the UPS back once it has had time to apply the change
+      const uint32_t delay = std::min(WRITE_SETTLE_MS, this->update_interval_ms_);
+      this->last_poll_start_ms_ = millis() - (this->update_interval_ms_ - delay);
       break;
+    }
     default:
       break;
   }
@@ -705,7 +710,7 @@ void UpsHid::start_write_() {
                             (static_cast<uint16_t>(write.report.type) << 8) | write.report.id, this->interface_number_,
                             data.size(), data.data())) {
     this->phase_ = Phase::WRITING;
-    this->current_write_ = write.command;
+    this->current_write_ = std::move(write);
   } else {
     ESP_LOGW(TAG, "Could not send UPS command %s", write.command.c_str());
   }

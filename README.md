@@ -155,16 +155,18 @@ work, but `upsmon` needs a login.
 
 ### Customising the package
 
-```yaml
-substitutions:
-  ups_prefix: Office UPS        # entity names become "Office UPS Battery charge", ...
+Entities have plain names ("Battery charge", "On battery"). Home Assistant shows them under your
+device's name, so there's no need to repeat "UPS" in each one.
 
+```yaml
 nut_server:
   synology_compatible: true     # any ups_hid / nut_server option is merged in
 
 sensor:
   - id: !extend ups_sensors     # also ups_binary_sensors, ups_text_sensors
     wall_frequency: !remove     # drop an entity you don't want
+    load_percent:
+      name: UPS load            # rename one
 
 # nut_server: !remove           # sensors only, no NUT server
 ```

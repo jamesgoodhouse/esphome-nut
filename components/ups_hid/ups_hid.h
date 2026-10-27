@@ -114,6 +114,8 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
   static constexpr uint32_t CONTROL_TIMEOUT_MS = 5000;
   static constexpr uint8_t MAX_REPORT_FAILURES = 3;
   static constexpr size_t MAX_PENDING_WRITES = 4;
+  /// Some UPSes (e.g. Tripp Lite) keep reporting the old value for a few seconds after a write
+  static constexpr uint32_t WRITE_SETTLE_MS = 5000;
 
   struct PolledReport {
     HidReport report;
@@ -180,10 +182,8 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
   size_t poll_index_{0};
   bool round_had_data_{false};
   uint32_t last_poll_start_ms_{0};
-  /// Read the UPS again as soon as possible, e.g. right after a write
-  bool poll_soon_{false};
   std::vector<PendingWrite> pending_writes_;
-  std::string current_write_;
+  PendingWrite current_write_;
   uint32_t last_data_ms_{0};
   bool have_data_{false};
 
