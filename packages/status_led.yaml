@@ -20,7 +20,7 @@
 substitutions:
   status_led_pin: GPIO48
   status_led_chipset: WS2812
-  status_led_rgb_order: GRB
+  status_led_channel_colors: GRB
   status_led_brightness: "25"   # percent, 1-100
 
 light:
@@ -28,7 +28,7 @@ light:
     id: ups_status_led
     pin: ${status_led_pin}
     chipset: ${status_led_chipset}
-    rgb_order: ${status_led_rgb_order}
+    channel_colors: ${status_led_channel_colors}
     num_leds: 1
     internal: true
     restore_mode: ALWAYS_OFF

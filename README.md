@@ -195,7 +195,7 @@ substitutions:
 | green | On wall power, battery full |
 
 For a different LED type, also set `status_led_chipset` (default `WS2812`) and
-`status_led_rgb_order` (default `GRB`). To change the colours, override the
+`status_led_channel_colors` (default `GRB`). To change the colours, override the
 `ups_status_led_update` script in your own config.
 
 ### Reacting to status changes
