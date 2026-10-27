@@ -83,6 +83,8 @@ void UpsHid::dump_config() {
   } else {
     ESP_LOGCONFIG(TAG, "  Connected: no");
   }
+  // dump_config is replayed whenever a log viewer connects, so the dump is always reachable
+  this->log_diagnostics_();
 }
 
 // ---- usb_host task context -------------------------------------------------------------
@@ -160,6 +162,7 @@ void UpsHid::on_disconnected() {
   this->interrupt_mps_ = 0;
   this->report_descriptor_length_ = 0;
   this->polled_reports_.clear();
+  this->raw_descriptor_.clear();
   this->mapper_.clear_reports();
   this->have_data_ = false;
   this->snapshot_ = ups_common::UpsSnapshot{};
@@ -357,20 +360,31 @@ void UpsHid::handle_control_result_() {
   }
 }
 
-void UpsHid::handle_descriptor_(const uint8_t *data, size_t len) {
-  ESP_LOGD(TAG, "Report descriptor: %u bytes", static_cast<unsigned>(len));
+void UpsHid::log_diagnostics_() {
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
-  // Dumped so users can share it when asking for support of a new UPS
-  ESP_LOGV(TAG, "Report descriptor dump (%04X:%04X):", this->vendor_id_, this->product_id_);
+  // Shared by users when asking for support of a new UPS
+  if (this->raw_descriptor_.empty())
+    return;
+  const size_t len = this->raw_descriptor_.size();
+  ESP_LOGV(TAG, "Report descriptor dump (%04X:%04X, %u bytes):", this->vendor_id_, this->product_id_,
+           static_cast<unsigned>(len));
   for (size_t i = 0; i < len; i += 32) {
     char line[32 * 3 + 1];
     size_t pos = 0;
     for (size_t j = i; j < len && j < i + 32; j++)
-      pos += snprintf(line + pos, sizeof(line) - pos, "%02x ", data[j]);
+      pos += snprintf(line + pos, sizeof(line) - pos, "%02x ", this->raw_descriptor_[j]);
     line[pos > 0 ? pos - 1 : 0] = '\0';
     ESP_LOGV(TAG, "  %s", line);
   }
+  ESP_LOGV(TAG, "Values read from the UPS:");
+  for (const auto &line : this->mapper_.describe())
+    ESP_LOGV(TAG, "  %s", line.c_str());
 #endif
+}
+
+void UpsHid::handle_descriptor_(const uint8_t *data, size_t len) {
+  ESP_LOGD(TAG, "Report descriptor: %u bytes", static_cast<unsigned>(len));
+  this->raw_descriptor_.assign(data, data + len);
 
   std::string error;
   if (!this->descriptor_.parse(data, len, &error)) {

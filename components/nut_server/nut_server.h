@@ -51,7 +51,7 @@ class NutServer : public Component {
   };
 
   bool start_listening_();
-  void accept_clients_();
+  void accept_clients_(uint32_t now);
   void serve_client_(Client &client, const ups_common::UpsSnapshot &snapshot, uint32_t now);
   void flush_client_(Client &client);
 

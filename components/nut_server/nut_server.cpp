@@ -71,7 +71,7 @@ void NutServer::loop() {
   const auto &snapshot = this->source_ != nullptr ? this->source_->get_ups_snapshot() : NO_UPS;
   this->protocol_.observe(snapshot, now);
 
-  this->accept_clients_();
+  this->accept_clients_(now);
   for (auto &client : this->clients_)
     this->serve_client_(*client, snapshot, now);
 
@@ -88,7 +88,7 @@ void NutServer::loop() {
   }
 }
 
-void NutServer::accept_clients_() {
+void NutServer::accept_clients_(uint32_t now) {
   if (!this->listen_->ready())
     return;
   // Drain all pending connections (see the ready() contract in socket.h)
@@ -112,7 +112,8 @@ void NutServer::accept_clients_() {
     auto client = std::make_unique<Client>();
     client->socket = std::move(sock);
     client->session.peer = address;
-    client->last_activity_ms = millis();
+    // Same clock as serve_client_(); a later millis() would make the idle check underflow
+    client->last_activity_ms = now;
     this->protocol_.open_session(&client->session);
     ESP_LOGD(TAG, "Client %s connected", address);
     this->clients_.push_back(std::move(client));

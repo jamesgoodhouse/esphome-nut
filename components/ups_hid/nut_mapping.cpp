@@ -226,6 +226,23 @@ void NutMapper::build(std::map<std::string, std::string> *vars) const {
   apply_value_quirks(this->vendor_id_, this->product_id_, vars);
 }
 
+std::vector<std::string> NutMapper::describe() const {
+  std::vector<std::string> lines;
+  for (const auto &binding : this->values_) {
+    const HidField &f = binding.field;
+    char line[160];
+    int32_t raw;
+    const bool have = this->read_field_(f, &raw);
+    std::snprintf(line, sizeof(line), "%s: %s report %u, bits %u+%u, unit 0x%08X, exponent %d, raw %s -> %s",
+                  binding.nut_name, f.type == ReportType::INPUT ? "input" : "feature", f.report_id, f.bit_offset,
+                  f.bit_size, static_cast<unsigned>(f.unit), f.unit_exponent,
+                  have ? std::to_string(raw).c_str() : "?",
+                  have ? format_nut_number(hid_to_physical(f, raw) * binding.scale).c_str() : "?");
+    lines.emplace_back(line);
+  }
+  return lines;
+}
+
 std::string format_nut_number(double value) {
   if (std::isnan(value) || std::isinf(value))
     return "0";

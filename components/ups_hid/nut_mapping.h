@@ -48,6 +48,9 @@ class NutMapper {
   /// Write all NUT variables that currently have data into *vars (including ups.status).
   void build(std::map<std::string, std::string> *vars) const;
 
+  /// One line per bound value, showing where it comes from and how it is scaled. For troubleshooting.
+  std::vector<std::string> describe() const;
+
  protected:
   struct Binding {
     const char *nut_name;

@@ -272,6 +272,24 @@ TEST(cyberpower_battery_voltage_quirk_rescales_inflated_voltage) {
   CHECK_EQ(vars["battery.voltage"], std::string("20.4"));
 }
 
+TEST(describe_lists_scaling_for_each_value) {
+  auto bytes = apc_style_descriptor();
+  HidDescriptor desc;
+  CHECK(desc.parse(bytes.data(), bytes.size()));
+  NutMapper mapper;
+  mapper.bind(desc, 0x051D, 0x0002);
+  feed_apc(mapper, 0b00011);
+  bool found = false;
+  for (const auto &line : mapper.describe()) {
+    if (line.rfind("battery.voltage:", 0) == 0) {
+      CHECK_EQ(line, std::string("battery.voltage: feature report 3, bits 0+16, unit 0x00F0D121, exponent 5, "
+                                 "raw 1365 -> 13.65"));
+      found = true;
+    }
+  }
+  CHECK(found);
+}
+
 TEST(number_formatting_matches_nut_style) {
   CHECK_EQ(format_nut_number(100.0), std::string("100"));
   CHECK_EQ(format_nut_number(13.65), std::string("13.65"));

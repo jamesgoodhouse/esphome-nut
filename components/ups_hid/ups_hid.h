@@ -111,6 +111,7 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
   void start_interrupt_();
   void handle_control_result_();
   void handle_descriptor_(const uint8_t *data, size_t len);
+  void log_diagnostics_();
   void handle_report_(bool success, const uint8_t *data, size_t len);
   void poll_next_report_();
   void drain_input_reports_();
@@ -140,6 +141,8 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
   std::string serial_;
 
   HidDescriptor descriptor_;
+  /// Kept for the diagnostics in dump_config()
+  std::vector<uint8_t> raw_descriptor_;
   NutMapper mapper_;
   std::vector<PolledReport> polled_reports_;
   size_t poll_index_{0};
