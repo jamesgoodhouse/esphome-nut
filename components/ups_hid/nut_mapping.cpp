@@ -14,12 +14,11 @@ namespace {
 using namespace usage;
 
 using Pattern = std::initializer_list<uint32_t>;
-
-enum class ValueKind : uint8_t { NUMBER, BEEPER };
+using ValueKind = NutMapper::ValueKind;
 
 struct ValueDef {
   const char *nut_name;
-  ValueKind kind;
+  NutMapper::ValueKind kind;
   std::initializer_list<Pattern> patterns;
 };
 
@@ -50,6 +49,27 @@ const ValueDef VALUE_DEFS[] = {
     {"ups.power.nominal", ValueKind::NUMBER, {{CONFIG_APPARENT_POWER}}},
     {"ups.realpower.nominal", ValueKind::NUMBER, {{CONFIG_ACTIVE_POWER}}},
     {"ups.beeper.status", ValueKind::BEEPER, {{POWER_SUMMARY, AUDIBLE_ALARM_CONTROL}, {AUDIBLE_ALARM_CONTROL}}},
+    {"ups.test.result", ValueKind::TEST_RESULT, {{BATTERY_SYSTEM, TEST}, {TEST}}},
+};
+
+const std::initializer_list<Pattern> BEEPER_PATTERNS = {{POWER_SUMMARY, AUDIBLE_ALARM_CONTROL},
+                                                         {AUDIBLE_ALARM_CONTROL}};
+const std::initializer_list<Pattern> TEST_PATTERNS = {{BATTERY_SYSTEM, TEST}, {TEST}};
+
+struct CommandDef {
+  const char *name;
+  bool beeper;  // else the battery test
+  int32_t value;
+};
+
+// NUT instant commands, written to the HID AudibleAlarmControl (1 = disabled, 2 = enabled, 3 = muted)
+// and Test (1 = quick test, 3 = abort) fields.
+const CommandDef COMMAND_DEFS[] = {
+    {"beeper.enable", true, 2},
+    {"beeper.disable", true, 1},
+    {"beeper.mute", true, 3},
+    {"test.battery.start.quick", false, 1},
+    {"test.battery.stop", false, 3},
 };
 
 struct FlagDef {
@@ -101,6 +121,17 @@ const HidField *find_field(const HidDescriptor &descriptor, std::initializer_lis
   return nullptr;
 }
 
+/// First writable feature field matching the patterns.
+const HidField *find_writable(const HidDescriptor &descriptor, std::initializer_list<Pattern> patterns) {
+  for (const auto &pattern : patterns) {
+    for (const auto &field : descriptor.fields()) {
+      if (field.writable() && path_ends_with(field.path, pattern))
+        return &field;
+    }
+  }
+  return nullptr;
+}
+
 uint16_t report_key(ReportType type, uint8_t id) { return (static_cast<uint16_t>(type) << 8) | id; }
 
 }  // namespace
@@ -114,8 +145,7 @@ void NutMapper::bind(const HidDescriptor &descriptor, uint16_t vendor_id, uint16
     const HidField *field = find_field(descriptor, def.patterns, ReportType::FEATURE);
     if (field == nullptr)
       continue;
-    this->values_.push_back(Binding{def.nut_name, def.kind == ValueKind::BEEPER, *field,
-                                    quirk_scale(vendor_id, product_id, def.nut_name)});
+    this->values_.push_back(Binding{def.nut_name, def.kind, *field, quirk_scale(vendor_id, product_id, def.nut_name)});
   }
   for (const auto &def : FLAG_DEFS) {
     const HidField *field =
@@ -124,6 +154,43 @@ void NutMapper::bind(const HidDescriptor &descriptor, uint16_t vendor_id, uint16
     if (field != nullptr)
       this->flags_[def.flag].field = *field;
   }
+  auto bind_control = [&descriptor](FlagBinding *control, std::initializer_list<Pattern> patterns) {
+    const HidField *field = find_writable(descriptor, patterns);
+    control->bound = field != nullptr;
+    if (field != nullptr)
+      control->field = *field;
+  };
+  bind_control(&this->beeper_control_, BEEPER_PATTERNS);
+  bind_control(&this->test_control_, TEST_PATTERNS);
+}
+
+std::vector<std::string> NutMapper::commands() const {
+  std::vector<std::string> names;
+  for (const auto &def : COMMAND_DEFS) {
+    if ((def.beeper ? this->beeper_control_ : this->test_control_).bound)
+      names.emplace_back(def.name);
+  }
+  return names;
+}
+
+bool NutMapper::build_command(const std::string &command, HidReport *report, std::vector<uint8_t> *payload) const {
+  for (const auto &def : COMMAND_DEFS) {
+    if (command != def.name)
+      continue;
+    const FlagBinding &control = def.beeper ? this->beeper_control_ : this->test_control_;
+    if (!control.bound)
+      return false;
+    // Start from the last read so other fields in the same report are written back unchanged
+    auto it = this->payloads_.find(report_key(control.field.type, control.field.report_id));
+    if (it == this->payloads_.end())
+      return false;
+    *payload = it->second;
+    if (!hid_insert(control.field, payload->data(), payload->size(), def.value))
+      return false;
+    *report = HidReport{control.field.type, control.field.report_id, 0};
+    return true;
+  }
+  return false;
 }
 
 bool NutMapper::can_report_status() const {
@@ -152,6 +219,11 @@ std::vector<HidReport> NutMapper::needed_reports() const {
     if (flag.bound)
       add(flag.field);
   }
+  // Controls are written on top of the last read, so their reports must be read too
+  for (const auto *control : {&this->beeper_control_, &this->test_control_}) {
+    if (control->bound)
+      add(control->field);
+  }
   return reports;
 }
 
@@ -171,11 +243,19 @@ void NutMapper::build(std::map<std::string, std::string> *vars) const {
     int32_t raw;
     if (!this->read_field_(binding.field, &raw))
       continue;
-    if (binding.beeper) {
+    if (binding.kind == ValueKind::BEEPER) {
       // AudibleAlarmControl: 1 = disabled, 2 = enabled, 3 = muted
       const char *state = raw == 1 ? "disabled" : raw == 2 ? "enabled" : raw == 3 ? "muted" : nullptr;
       if (state != nullptr)
         (*vars)[binding.nut_name] = state;
+      continue;
+    }
+    if (binding.kind == ValueKind::TEST_RESULT) {
+      // Test (read): 1 passed, 2 warning, 3 error, 4 aborted, 5 in progress, 6 no test; wording from NUT
+      static const char *const RESULTS[] = {"Done and passed", "Done and warning", "Done and error",
+                                            "Aborted",         "In progress",      "No test initiated"};
+      if (raw >= 1 && raw <= 6)
+        (*vars)[binding.nut_name] = RESULTS[raw - 1];
       continue;
     }
     (*vars)[binding.nut_name] = format_nut_number(this->physical_(binding, raw));

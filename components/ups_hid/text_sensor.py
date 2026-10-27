@@ -21,6 +21,10 @@ TEXT_SENSORS = {
     "serial_number": text_sensor.text_sensor_schema(
         entity_category=ENTITY_CATEGORY_DIAGNOSTIC
     ),
+    # Result of the last battery self-test, e.g. "Done and passed"
+    "self_test_result": text_sensor.text_sensor_schema(
+        icon="mdi:battery-check", entity_category=ENTITY_CATEGORY_DIAGNOSTIC
+    ),
 }
 
 CONFIG_SCHEMA = cv.Schema(

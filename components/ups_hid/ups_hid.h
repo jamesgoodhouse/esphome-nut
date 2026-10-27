@@ -24,6 +24,12 @@
 #ifdef USE_TEXT_SENSOR
 #include "esphome/components/text_sensor/text_sensor.h"
 #endif
+#ifdef USE_SWITCH
+#include "esphome/components/switch/switch.h"
+#endif
+#ifdef USE_BUTTON
+#include "esphome/components/button/button.h"
+#endif
 
 #include "hid_parser.h"
 #include "nut_mapping.h"
@@ -31,6 +37,8 @@
 namespace esphome::ups_hid {
 
 static constexpr const char *DRIVER_VERSION = "0.1.0";
+
+class UpsHidBeeperSwitch;
 
 /// Reads a USB HID Power Device (UPS) and exposes it as NUT variables and ESPHome entities.
 ///
@@ -60,6 +68,7 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
   SUB_TEXT_SENSOR(manufacturer)
   SUB_TEXT_SENSOR(model)
   SUB_TEXT_SENSOR(serial_number)
+  SUB_TEXT_SENSOR(self_test_result)
 #endif
 
  public:
@@ -71,8 +80,16 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
   void dump_config() override;
 
   void set_update_interval(uint32_t update_interval_ms) { this->update_interval_ms_ = update_interval_ms; }
+  /// Allow changing UPS settings and running commands (beeper, battery test). Off by default.
+  void set_allow_control(bool allow_control) { this->allow_control_ = allow_control; }
+#ifdef USE_SWITCH
+  void set_beeper_switch(UpsHidBeeperSwitch *beeper_switch) { this->beeper_switch_ = beeper_switch; }
+#endif
 
   const ups_common::UpsSnapshot &get_ups_snapshot() const override { return this->snapshot_; }
+  /// Queue a NUT instant command (e.g. "beeper.disable"). Returns false if control is not allowed,
+  /// no UPS is connected, or the UPS does not support the command.
+  bool run_command(const std::string &name) override;
 
   /// Fires with the NUT status code (e.g. "OB DISCHRG") whenever it changes; empty when no UPS is connected.
   Trigger<std::string> *get_status_change_trigger() { return &this->status_change_trigger_; }
@@ -87,6 +104,7 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
     READING_DESCRIPTOR,
     POLLING,
     IDLE,
+    WRITING,
     REJECTED,
   };
 
@@ -95,10 +113,16 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
   static constexpr size_t MAX_PENDING_INPUT_REPORTS = 8;
   static constexpr uint32_t CONTROL_TIMEOUT_MS = 5000;
   static constexpr uint8_t MAX_REPORT_FAILURES = 3;
+  static constexpr size_t MAX_PENDING_WRITES = 4;
 
   struct PolledReport {
     HidReport report;
     uint8_t failures;
+  };
+  struct PendingWrite {
+    std::string command;
+    HidReport report;
+    std::vector<uint8_t> payload;
   };
   struct InputReport {
     uint8_t length;
@@ -111,7 +135,10 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
 
   bool find_hid_interface_();
   void read_identity_();
-  bool submit_control_(uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, uint16_t length);
+  /// Start a control transfer. For OUT requests, out_data holds `length` bytes to send.
+  bool submit_control_(uint8_t request_type, uint8_t request, uint16_t value, uint16_t index, uint16_t length,
+                       const uint8_t *out_data = nullptr);
+  void start_write_();
   void start_interrupt_();
   void handle_control_result_();
   void handle_descriptor_(const uint8_t *data, size_t len);
@@ -127,6 +154,7 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
   uint32_t stale_after_ms_() const;
 
   uint32_t update_interval_ms_{15000};
+  bool allow_control_{false};
 
   // Device being served
   Phase phase_{Phase::NO_DEVICE};
@@ -152,6 +180,10 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
   size_t poll_index_{0};
   bool round_had_data_{false};
   uint32_t last_poll_start_ms_{0};
+  /// Read the UPS again as soon as possible, e.g. right after a write
+  bool poll_soon_{false};
+  std::vector<PendingWrite> pending_writes_;
+  std::string current_write_;
   uint32_t last_data_ms_{0};
   bool have_data_{false};
 
@@ -174,11 +206,35 @@ class UpsHid : public usb_host::USBClient, public ups_common::UpsSource {
 
   ups_common::UpsSnapshot snapshot_;
   std::string last_status_;
+  std::string last_test_result_;
+#ifdef USE_SWITCH
+  UpsHidBeeperSwitch *beeper_switch_{nullptr};
+#endif
 
   Trigger<std::string> status_change_trigger_;
   std::string notified_status_;
   bool status_notified_{false};
 };
+
+#ifdef USE_SWITCH
+/// On = beeper enabled, off = disabled. Shows the state read back from the UPS.
+class UpsHidBeeperSwitch : public switch_::Switch, public Parented<UpsHid> {
+ protected:
+  void write_state(bool state) override;
+};
+#endif
+
+#ifdef USE_BUTTON
+/// Runs one NUT instant command on the UPS when pressed.
+class UpsHidCommandButton : public button::Button, public Parented<UpsHid> {
+ public:
+  void set_command(const char *command) { this->command_ = command; }
+
+ protected:
+  void press_action() override;
+  const char *command_{""};
+};
+#endif
 
 }  // namespace esphome::ups_hid
 

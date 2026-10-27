@@ -35,6 +35,7 @@ constexpr uint32_t CONFIG_VOLTAGE = pd(0x40);
 constexpr uint32_t CONFIG_FREQUENCY = pd(0x42);
 constexpr uint32_t CONFIG_APPARENT_POWER = pd(0x43);
 constexpr uint32_t CONFIG_ACTIVE_POWER = pd(0x44);
+constexpr uint32_t TEST = pd(0x58);
 constexpr uint32_t AUDIBLE_ALARM_CONTROL = pd(0x5A);
 
 // Power Device page (0x84): status flags

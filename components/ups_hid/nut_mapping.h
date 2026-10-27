@@ -51,11 +51,19 @@ class NutMapper {
   /// One line per bound value, showing where it comes from and how it is scaled. For troubleshooting.
   std::vector<std::string> describe() const;
 
+  /// NUT instant commands the device supports (e.g. "beeper.disable"), based on its writable fields.
+  std::vector<std::string> commands() const;
+  /// Build the SET_REPORT for a command: which report, and its full payload (excluding the report ID).
+  /// The payload starts from the last read of that report, so its other fields are written back unchanged.
+  /// Returns false if the command is unsupported or the report has not been read yet.
+  bool build_command(const std::string &command, HidReport *report, std::vector<uint8_t> *payload) const;
+
+  enum class ValueKind : uint8_t { NUMBER, BEEPER, TEST_RESULT };
+
  protected:
   struct Binding {
     const char *nut_name;
-    /// AudibleAlarmControl enum rather than a number
-    bool beeper;
+    ValueKind kind;
     HidField field;
     double scale;
   };
@@ -69,6 +77,8 @@ class NutMapper {
 
   std::vector<Binding> values_;
   FlagBinding flags_[FLAG_COUNT];
+  FlagBinding beeper_control_;
+  FlagBinding test_control_;
   std::map<uint16_t, std::vector<uint8_t>> payloads_;
   uint16_t vendor_id_{0};
   uint16_t product_id_{0};

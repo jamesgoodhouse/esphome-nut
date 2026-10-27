@@ -23,6 +23,8 @@ static constexpr uint8_t HID_DESCRIPTOR_TYPE = 0x21;
 static constexpr uint8_t HID_REPORT_DESCRIPTOR_TYPE = 0x22;
 static constexpr uint8_t REQUEST_GET_DESCRIPTOR = 0x06;
 static constexpr uint8_t REQUEST_GET_REPORT = 0x01;
+static constexpr uint8_t REQUEST_SET_REPORT = 0x09;
+static constexpr uint8_t REQUEST_TYPE_CLASS_INTERFACE_OUT = 0x21;
 static constexpr uint8_t REQUEST_TYPE_STANDARD_INTERFACE_IN = 0x81;
 static constexpr uint8_t REQUEST_TYPE_CLASS_INTERFACE_IN = 0xA1;
 static constexpr uint16_t DEFAULT_REPORT_DESCRIPTOR_LENGTH = 1024;
@@ -75,8 +77,9 @@ void UpsHid::setup() {
 void UpsHid::dump_config() {
   ESP_LOGCONFIG(TAG,
                 "UPS (USB HID):\n"
-                "  Update interval: %" PRIu32 " ms",
-                this->update_interval_ms_);
+                "  Update interval: %" PRIu32 " ms\n"
+                "  Allow control: %s",
+                this->update_interval_ms_, YESNO(this->allow_control_));
   if (this->snapshot_.connected) {
     ESP_LOGCONFIG(TAG, "  Connected: %04X:%04X %s %s", this->vendor_id_, this->product_id_,
                   this->manufacturer_.c_str(), this->product_.c_str());
@@ -162,6 +165,9 @@ void UpsHid::on_disconnected() {
   this->interrupt_mps_ = 0;
   this->report_descriptor_length_ = 0;
   this->polled_reports_.clear();
+  this->pending_writes_.clear();
+  this->poll_soon_ = false;
+  this->last_test_result_.clear();
   this->raw_descriptor_.clear();
   this->mapper_.clear_reports();
   this->have_data_ = false;
@@ -239,9 +245,11 @@ void UpsHid::reject_device_(const char *reason) {
 }
 
 bool UpsHid::submit_control_(uint8_t request_type, uint8_t request, uint16_t value, uint16_t index,
-                             uint16_t length) {
-  if (this->control_busy_.load())
+                             uint16_t length, const uint8_t *out_data) {
+  if (this->control_busy_.load() || length > MAX_REPORT_DESCRIPTOR)
     return false;
+  if (out_data != nullptr)
+    std::memcpy(this->control_transfer_->data_buffer + sizeof(usb_setup_packet_t), out_data, length);
   auto *setup = reinterpret_cast<usb_setup_packet_t *>(this->control_transfer_->data_buffer);
   setup->bmRequestType = request_type;
   setup->bRequest = request;
@@ -313,7 +321,11 @@ void UpsHid::loop() {
   this->drain_input_reports_();
 
   const uint32_t now = millis();
-  if (this->phase_ == Phase::IDLE && now - this->last_poll_start_ms_ >= this->update_interval_ms_) {
+  if (this->phase_ == Phase::IDLE && !this->pending_writes_.empty() && !this->control_busy_.load())
+    this->start_write_();
+  if (this->phase_ == Phase::IDLE &&
+      (this->poll_soon_ || now - this->last_poll_start_ms_ >= this->update_interval_ms_)) {
+    this->poll_soon_ = false;
     this->phase_ = Phase::POLLING;
     this->poll_index_ = 0;
     this->round_had_data_ = false;
@@ -365,6 +377,16 @@ void UpsHid::handle_control_result_() {
       break;
     case Phase::POLLING:
       this->handle_report_(ok, data, len);
+      break;
+    case Phase::WRITING:
+      if (ok) {
+        ESP_LOGI(TAG, "UPS command %s done", this->current_write_.c_str());
+      } else {
+        ESP_LOGW(TAG, "UPS rejected command %s (USB status %d)", this->current_write_.c_str(),
+                 static_cast<int>(this->control_transfer_->status));
+      }
+      this->phase_ = Phase::IDLE;
+      this->poll_soon_ = true;  // read back the new state
       break;
     default:
       break;
@@ -495,7 +517,8 @@ void UpsHid::drain_input_reports_() {
 
   if (dropped > 0)
     ESP_LOGD(TAG, "Dropped %" PRIu32 " UPS status updates", dropped);
-  if (count == 0 || (this->phase_ != Phase::POLLING && this->phase_ != Phase::IDLE))
+  if (count == 0 ||
+      (this->phase_ != Phase::POLLING && this->phase_ != Phase::IDLE && this->phase_ != Phase::WRITING))
     return;
   for (size_t i = 0; i < count; i++) {
     const uint8_t *data = reports[i].data;
@@ -537,6 +560,7 @@ void UpsHid::rebuild_snapshot_() {
     vars["ups.serial"] = this->serial_;
     vars["device.serial"] = this->serial_;
   }
+  this->snapshot_.commands = this->allow_control_ ? this->mapper_.commands() : std::vector<std::string>{};
   vars["device.type"] = "ups";
   vars["driver.name"] = "esphome-ups_hid";
   vars["driver.version"] = DRIVER_VERSION;
@@ -601,6 +625,12 @@ void UpsHid::publish_entities_(bool include_measurements) {
   flag(this->overloaded_binary_sensor_, "OVER");
 #endif
 
+#ifdef USE_SWITCH
+  auto beeper = vars.find("ups.beeper.status");
+  if (this->beeper_switch_ != nullptr && beeper != vars.end())
+    this->beeper_switch_->publish_state(beeper->second != "disabled");
+#endif
+
 #ifdef USE_TEXT_SENSOR
   const std::string shown = this->snapshot_.stale ? std::string("STALE") : status;
   if (shown != this->last_status_) {
@@ -610,6 +640,12 @@ void UpsHid::publish_entities_(bool include_measurements) {
                                                                      : describe_status(status));
     if (this->status_code_text_sensor_ != nullptr)
       this->status_code_text_sensor_->publish_state(status);
+  }
+  auto test_result = vars.find("ups.test.result");
+  if (this->self_test_result_text_sensor_ != nullptr && test_result != vars.end() &&
+      test_result->second != this->last_test_result_) {
+    this->last_test_result_ = test_result->second;
+    this->self_test_result_text_sensor_->publish_state(test_result->second);
   }
 #endif
 }
@@ -634,6 +670,60 @@ void UpsHid::publish_disconnected_() {
     this->status_code_text_sensor_->publish_state("");
 #endif
 }
+
+bool UpsHid::run_command(const std::string &name) {
+  if (!this->allow_control_) {
+    ESP_LOGW(TAG, "Ignoring UPS command %s: set allow_control: true on ups_hid to enable commands", name.c_str());
+    return false;
+  }
+  if (!this->snapshot_.connected) {
+    ESP_LOGW(TAG, "Ignoring UPS command %s: no UPS connected", name.c_str());
+    return false;
+  }
+  if (this->pending_writes_.size() >= MAX_PENDING_WRITES) {
+    ESP_LOGW(TAG, "Ignoring UPS command %s: too many commands waiting", name.c_str());
+    return false;
+  }
+  PendingWrite write{name, {}, {}};
+  if (!this->mapper_.build_command(name, &write.report, &write.payload)) {
+    ESP_LOGW(TAG, "This UPS does not support the command %s", name.c_str());
+    return false;
+  }
+  ESP_LOGI(TAG, "Running UPS command %s", name.c_str());
+  this->pending_writes_.push_back(std::move(write));
+  return true;
+}
+
+void UpsHid::start_write_() {
+  PendingWrite write = std::move(this->pending_writes_.front());
+  this->pending_writes_.erase(this->pending_writes_.begin());
+  std::vector<uint8_t> data;
+  if (this->descriptor_.uses_report_ids())
+    data.push_back(write.report.id);
+  data.insert(data.end(), write.payload.begin(), write.payload.end());
+  if (this->submit_control_(REQUEST_TYPE_CLASS_INTERFACE_OUT, REQUEST_SET_REPORT,
+                            (static_cast<uint16_t>(write.report.type) << 8) | write.report.id, this->interface_number_,
+                            data.size(), data.data())) {
+    this->phase_ = Phase::WRITING;
+    this->current_write_ = write.command;
+  } else {
+    ESP_LOGW(TAG, "Could not send UPS command %s", write.command.c_str());
+  }
+}
+
+#ifdef USE_SWITCH
+void UpsHidBeeperSwitch::write_state(bool state) {
+  // Show the request right away; the next read from the UPS confirms or corrects it
+  if (this->parent_->run_command(state ? "beeper.enable" : "beeper.disable"))
+    this->publish_state(state);
+  else
+    this->publish_state(this->state);
+}
+#endif
+
+#ifdef USE_BUTTON
+void UpsHidCommandButton::press_action() { this->parent_->run_command(this->command_); }
+#endif
 
 }  // namespace esphome::ups_hid
 

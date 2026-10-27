@@ -17,6 +17,8 @@ void NutServer::setup() {
     ESP_LOGI(TAG, "Home Assistant is optional: this device will not reboot when Home Assistant is unreachable, "
                   "so the UPS stays monitored even if Home Assistant is down");
   }
+  this->protocol_.set_command_handler(
+      [this](const std::string &name) { return this->source_ != nullptr && this->source_->run_command(name); });
   this->start_listening_();
 }
 
@@ -32,7 +34,8 @@ void NutServer::dump_config() {
                 this->max_connections_, YESNO(this->require_login_),
                 static_cast<unsigned>(this->protocol_.get_users().size()));
   for (const auto &user : this->protocol_.get_users())
-    ESP_LOGCONFIG(TAG, "    %s (%s)", user.username.c_str(), user.primary ? "primary" : "secondary");
+    ESP_LOGCONFIG(TAG, "    %s (%s%s)", user.username.c_str(), user.primary ? "primary" : "secondary",
+                  user.allow_commands ? ", may run commands" : "");
   ESP_LOGCONFIG(TAG, "  Reboot if Home Assistant is unreachable: %s", YESNO(!this->api_reboot_disabled_));
 }
 

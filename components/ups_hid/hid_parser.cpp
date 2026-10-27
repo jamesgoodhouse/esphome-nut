@@ -270,6 +270,7 @@ bool HidDescriptor::parse(const uint8_t *data, size_t len, std::string *error) {
             field.logical_max = logical_max;
             field.unit_exponent = global.unit_exponent;
             field.unit = global.unit;
+            field.constant = constant;
             field.path = collection_path;
             field.path.push_back(usage);
             note_page(static_cast<uint16_t>(usage >> 16));
@@ -323,6 +324,22 @@ bool hid_extract(const HidField &field, const uint8_t *payload, size_t len, int3
   if (field.logical_min < 0 && field.bit_size < 32 && (raw & (1u << (field.bit_size - 1))))
     raw |= ~((1u << field.bit_size) - 1);  // sign-extend
   *out = static_cast<int32_t>(raw);
+  return true;
+}
+
+bool hid_insert(const HidField &field, uint8_t *payload, size_t len, int32_t value) {
+  const uint32_t end_bit = static_cast<uint32_t>(field.bit_offset) + field.bit_size;
+  if (field.bit_size == 0 || (end_bit + 7) / 8 > len)
+    return false;
+  const uint32_t raw = static_cast<uint32_t>(value);
+  for (uint8_t i = 0; i < field.bit_size; i++) {
+    const uint32_t bit = field.bit_offset + i;
+    const uint8_t mask = static_cast<uint8_t>(1u << (bit % 8));
+    if (raw & (1u << i))
+      payload[bit / 8] |= mask;
+    else
+      payload[bit / 8] &= static_cast<uint8_t>(~mask);
+  }
   return true;
 }
 

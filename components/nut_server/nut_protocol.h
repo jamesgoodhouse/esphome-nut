@@ -1,10 +1,11 @@
 #pragma once
 
-// NUT network protocol (upsd side, read-only). Pure C++ (no ESPHome / ESP-IDF dependencies)
-// so it can be unit-tested on the host. Reference:
+// NUT network protocol (upsd side). Read-only apart from the instant commands the UPS source offers.
+// Pure C++ (no ESPHome / ESP-IDF dependencies) so it can be unit-tested on the host. Reference:
 // https://networkupstools.org/docs/developer-guide.chunked/net-protocol.html
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,8 @@ struct NutUser {
   std::string password;
   /// Primary users may claim PRIMARY and set FSD (the machine that tells others to shut down).
   bool primary;
+  /// May run instant commands (beeper, battery test) with INSTCMD.
+  bool allow_commands;
 };
 
 /// Per-connection state.
@@ -46,8 +49,13 @@ class NutProtocol {
   const std::string &get_ups_name() const { return this->ups_name_; }
   void set_ups_description(const std::string &description) { this->ups_description_ = description; }
   void set_require_login(bool require_login) { this->require_login_ = require_login; }
-  void add_user(const std::string &username, const std::string &password, bool primary) {
-    this->users_.push_back(NutUser{username, password, primary});
+  void add_user(const std::string &username, const std::string &password, bool primary,
+                bool allow_commands = false) {
+    this->users_.push_back(NutUser{username, password, primary, allow_commands});
+  }
+  /// Runs an instant command on the UPS; returns false if it could not be started.
+  void set_command_handler(std::function<bool(const std::string &)> handler) {
+    this->command_handler_ = std::move(handler);
   }
   const std::vector<NutUser> &get_users() const { return this->users_; }
 
@@ -68,6 +76,8 @@ class NutProtocol {
  protected:
   std::string handle_get_(NutSession &session, const std::vector<std::string> &args, const UpsSnapshot &snapshot);
   std::string handle_list_(NutSession &session, const std::vector<std::string> &args, const UpsSnapshot &snapshot);
+  std::string handle_instcmd_(NutSession &session, const std::vector<std::string> &args,
+                              const UpsSnapshot &snapshot);
   const NutUser *authenticated_user_(const NutSession &session) const;
   /// Empty if the UPS data can be served, otherwise the error reply.
   std::string availability_error_(const UpsSnapshot &snapshot) const;
@@ -79,6 +89,7 @@ class NutProtocol {
   std::string ups_description_;
   bool require_login_{false};
   std::vector<NutUser> users_;
+  std::function<bool(const std::string &)> command_handler_;
   std::vector<NutSession *> sessions_;
   bool fsd_{false};
   uint32_t fsd_set_ms_{0};

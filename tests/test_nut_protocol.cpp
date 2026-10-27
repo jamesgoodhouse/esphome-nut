@@ -23,6 +23,11 @@ UpsSnapshot online_snapshot(const std::string &status = "OL CHRG") {
   return snap;
 }
 
+NutSession &s_dummy() {
+  static NutSession session;
+  return session;
+}
+
 NutProtocol make_server() {
   NutProtocol nut;
   nut.add_user("monuser", "secret", false);
@@ -73,7 +78,7 @@ TEST(errors_for_unknown_things) {
   CHECK_EQ(nut.handle_line(s, "FROB", snap, 0), std::string("ERR UNKNOWN-COMMAND\n"));
   CHECK_EQ(nut.handle_line(s, "GET VAR ups", snap, 0), std::string("ERR INVALID-ARGUMENT\n"));
   CHECK_EQ(nut.handle_line(s, "SET VAR ups ups.delay.shutdown 20", snap, 0), std::string("ERR READONLY\n"));
-  CHECK_EQ(nut.handle_line(s, "INSTCMD ups beeper.off", snap, 0), std::string("ERR CMD-NOT-SUPPORTED\n"));
+  CHECK_EQ(nut.handle_line(s, "INSTCMD ups beeper.disable", snap, 0), std::string("ERR ACCESS-DENIED\n"));
   CHECK_EQ(nut.handle_line(s, "STARTTLS", snap, 0), std::string("ERR FEATURE-NOT-CONFIGURED\n"));
 }
 
@@ -190,6 +195,45 @@ TEST(custom_ups_name_and_description) {
   auto snap = online_snapshot();
   CHECK_EQ(nut.handle_line(s, "GET UPSDESC rack", snap, 0), std::string("UPSDESC rack \"Rack UPS\"\n"));
   CHECK_EQ(nut.handle_line(s, "GET VAR ups ups.status", snap, 0), std::string("ERR UNKNOWN-UPS\n"));
+}
+
+TEST(instant_commands_need_permission_and_support) {
+  NutProtocol nut;
+  nut.add_user("monuser", "secret", false);
+  nut.add_user("admin", "hunter2", true, true);
+  std::vector<std::string> ran;
+  nut.set_command_handler([&ran](const std::string &name) {
+    ran.push_back(name);
+    return name != "test.battery.stop";  // pretend this one fails to start
+  });
+  auto snap = online_snapshot();
+  snap.commands = {"beeper.disable", "beeper.enable", "test.battery.stop"};
+
+  CHECK_EQ(nut.handle_line(s_dummy(), "LIST CMD ups", snap, 0),
+           std::string("BEGIN LIST CMD ups\nCMD ups beeper.disable\nCMD ups beeper.enable\n"
+                       "CMD ups test.battery.stop\nEND LIST CMD ups\n"));
+  CHECK_EQ(nut.handle_line(s_dummy(), "GET CMDDESC ups beeper.disable", snap, 0),
+           std::string("CMDDESC ups beeper.disable \"Disable the UPS beeper\"\n"));
+
+  // A user without allow_commands is refused, even with the right password
+  NutSession secondary;
+  nut.handle_line(secondary, "USERNAME monuser", snap, 0);
+  nut.handle_line(secondary, "PASSWORD secret", snap, 0);
+  CHECK_EQ(nut.handle_line(secondary, "INSTCMD ups beeper.disable", snap, 0), std::string("ERR ACCESS-DENIED\n"));
+
+  NutSession admin;
+  nut.handle_line(admin, "USERNAME admin", snap, 0);
+  nut.handle_line(admin, "PASSWORD hunter2", snap, 0);
+  CHECK_EQ(nut.handle_line(admin, "INSTCMD ups beeper.disable", snap, 0), std::string("OK\n"));
+  CHECK_EQ(nut.handle_line(admin, "INSTCMD ups load.off", snap, 0), std::string("ERR CMD-NOT-SUPPORTED\n"));
+  CHECK_EQ(nut.handle_line(admin, "INSTCMD ups test.battery.stop", snap, 0), std::string("ERR INSTCMD-FAILED\n"));
+  CHECK_EQ(ran.size(), size_t(2));
+
+  UpsSnapshot gone;
+  gone.commands = snap.commands;
+  CHECK_EQ(nut.handle_line(admin, "INSTCMD ups beeper.disable", gone, 0),
+           std::string("ERR DRIVER-NOT-CONNECTED\n"));
+  CHECK_EQ(nut.handle_line(admin, "LIST CMD ups", gone, 0), std::string("BEGIN LIST CMD ups\nEND LIST CMD ups\n"));
 }
 
 TEST(tokenizer_and_quoting) {

@@ -65,6 +65,19 @@ const VarDesc VAR_DESCS[] = {
     {"driver.version", "Driver version - NUT release"},
 };
 
+// Descriptions for GET CMDDESC, from NUT's cmdvartab
+const VarDesc CMD_DESCS[] = {
+    {"beeper.enable", "Enable the UPS beeper"},
+    {"beeper.disable", "Disable the UPS beeper"},
+    {"beeper.mute", "Temporarily mute the UPS beeper"},
+    {"test.battery.start.quick", "Start a quick battery test"},
+    {"test.battery.stop", "Stop the battery test"},
+};
+
+bool has_command(const UpsSnapshot &snapshot, const std::string &name) {
+  return std::find(snapshot.commands.begin(), snapshot.commands.end(), name) != snapshot.commands.end();
+}
+
 }  // namespace
 
 std::vector<std::string> nut_tokenize(const std::string &line) {
@@ -271,7 +284,7 @@ std::string NutProtocol::handle_line(NutSession &session, const std::string &lin
   if (cmd == "SET")
     return err("READONLY");
   if (cmd == "INSTCMD")
-    return err("CMD-NOT-SUPPORTED");
+    return this->handle_instcmd_(session, args, snapshot);
   return err("UNKNOWN-COMMAND");
 }
 
@@ -289,8 +302,13 @@ std::string NutProtocol::handle_get_(NutSession &session, const std::vector<std:
     return "UPSDESC " + ups + " " + nut_quote(this->description_(snapshot)) + "\n";
   if (sub == "NUMLOGINS" && args.size() == 3)
     return "NUMLOGINS " + ups + " " + std::to_string(this->num_logins_()) + "\n";
-  if (sub == "CMDDESC" && args.size() == 4)
+  if (sub == "CMDDESC" && args.size() == 4) {
+    for (const auto &desc : CMD_DESCS) {
+      if (args[3] == desc.name)
+        return "CMDDESC " + ups + " " + args[3] + " " + nut_quote(desc.desc) + "\n";
+    }
     return err("CMD-NOT-SUPPORTED");
+  }
 
   if (args.size() != 4 || (sub != "VAR" && sub != "TYPE" && sub != "DESC"))
     return err("INVALID-ARGUMENT");
@@ -347,8 +365,16 @@ std::string NutProtocol::handle_list_(NutSession &session, const std::vector<std
     }
     return out + "END LIST VAR " + ups + "\n";
   }
-  if ((sub == "CMD" || sub == "RW") && args.size() == 3)
-    return "BEGIN LIST " + sub + " " + ups + "\nEND LIST " + sub + " " + ups + "\n";
+  if (sub == "CMD" && args.size() == 3) {
+    std::string out = "BEGIN LIST CMD " + ups + "\n";
+    if (snapshot.connected) {
+      for (const auto &name : snapshot.commands)
+        out += "CMD " + ups + " " + name + "\n";
+    }
+    return out + "END LIST CMD " + ups + "\n";
+  }
+  if (sub == "RW" && args.size() == 3)
+    return "BEGIN LIST RW " + ups + "\nEND LIST RW " + ups + "\n";
   if (sub == "CLIENT" && args.size() == 3) {
     std::string out = "BEGIN LIST CLIENT " + ups + "\n";
     for (const auto *s : this->sessions_) {
@@ -368,6 +394,25 @@ std::string NutProtocol::handle_list_(NutSession &session, const std::vector<std
     return "BEGIN LIST " + sub + " " + ups + " " + name + "\nEND LIST " + sub + " " + ups + " " + name + "\n";
   }
   return err("INVALID-ARGUMENT");
+}
+
+std::string NutProtocol::handle_instcmd_(NutSession &session, const std::vector<std::string> &args,
+                                         const UpsSnapshot &snapshot) {
+  if (args.size() < 3)
+    return err("INVALID-ARGUMENT");
+  if (args[1] != this->ups_name_)
+    return err("UNKNOWN-UPS");
+  const NutUser *user = this->authenticated_user_(session);
+  if (user == nullptr || !user->allow_commands)
+    return err("ACCESS-DENIED");
+  std::string error = this->availability_error_(snapshot);
+  if (!error.empty())
+    return error;
+  if (!has_command(snapshot, args[2]))
+    return err("CMD-NOT-SUPPORTED");
+  if (!this->command_handler_ || !this->command_handler_(args[2]))
+    return err("INSTCMD-FAILED");
+  return "OK\n";
 }
 
 }  // namespace esphome::nut_server

@@ -30,8 +30,8 @@ class NutServer : public Component {
     this->require_login_ = require_login;
     this->protocol_.set_require_login(require_login);
   }
-  void add_user(const std::string &username, const std::string &password, bool primary) {
-    this->protocol_.add_user(username, password, primary);
+  void add_user(const std::string &username, const std::string &password, bool primary, bool allow_commands) {
+    this->protocol_.add_user(username, password, primary, allow_commands);
   }
   /// Set by code generation when it turned off the api component's reboot-without-Home-Assistant timer.
   void set_api_reboot_disabled(bool disabled) { this->api_reboot_disabled_ = disabled; }

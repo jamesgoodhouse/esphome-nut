@@ -23,6 +23,7 @@ CONF_MAX_CONNECTIONS = "max_connections"
 CONF_REQUIRE_LOGIN = "require_login"
 CONF_USERS = "users"
 CONF_ROLE = "role"
+CONF_ALLOW_COMMANDS = "allow_commands"
 CONF_SYNOLOGY_COMPATIBLE = "synology_compatible"
 CONF_REBOOT_IF_HA_UNREACHABLE = "reboot_if_home_assistant_unreachable"
 
@@ -58,6 +59,8 @@ USER_SCHEMA = cv.Schema(
         cv.Optional(CONF_ROLE, default=ROLE_SECONDARY): cv.one_of(
             ROLE_PRIMARY, ROLE_SECONDARY, lower=True
         ),
+        # May run UPS commands (beeper, battery test). Needs allow_control on ups_hid.
+        cv.Optional(CONF_ALLOW_COMMANDS, default=False): cv.boolean,
     }
 )
 
@@ -122,6 +125,13 @@ CONFIG_SCHEMA = cv.All(
 
 
 def _final_validate(config):
+    if any(user[CONF_ALLOW_COMMANDS] for user in config[CONF_USERS]):
+        ups = fv.full_config.get().get("ups_hid") or {}
+        if not ups.get("allow_control", False):
+            raise cv.Invalid(
+                "A user has allow_commands: true, but UPS commands are turned off. "
+                "Add `allow_control: true` under `ups_hid:` to enable them."
+            )
     if config[CONF_REBOOT_IF_HA_UNREACHABLE]:
         return config
     api_conf = fv.full_config.get().get("api")
@@ -159,10 +169,11 @@ async def to_code(config):
                 user[CONF_USERNAME],
                 user[CONF_PASSWORD],
                 user[CONF_ROLE] == ROLE_PRIMARY,
+                user[CONF_ALLOW_COMMANDS],
             )
         )
     if config[CONF_SYNOLOGY_COMPATIBLE]:
-        cg.add(var.add_user(SYNOLOGY_USERNAME, SYNOLOGY_PASSWORD, False))
+        cg.add(var.add_user(SYNOLOGY_USERNAME, SYNOLOGY_PASSWORD, False, False))
 
     # Keep serving NUT clients when Home Assistant is down (e.g. it runs on the NAS that is shutting down)
     api_conf = CORE.config.get("api")

@@ -2,6 +2,7 @@
 
 #include <dirent.h>
 
+#include <algorithm>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -348,6 +349,70 @@ TEST(tripp_lite_eco850lcd_exponent_quirk) {
   CHECK_EQ(vars["input.frequency"], std::string("60.2"));
   CHECK_EQ(vars["output.voltage"], std::string("118.4"));
   CHECK_EQ(vars["ups.realpower"], std::string("76"));
+}
+
+TEST(tripp_lite_commands_write_beeper_and_test_fields) {
+  std::ifstream file(std::string(FIXTURE_DIR) + "/tripplite_eco850lcd_09ae_3024.hex");
+  std::vector<uint8_t> bytes;
+  std::string token;
+  while (file >> token)
+    bytes.push_back(static_cast<uint8_t>(std::stoul(token, nullptr, 16)));
+  HidDescriptor desc;
+  CHECK(desc.parse(bytes.data(), bytes.size()));
+  NutMapper mapper;
+  mapper.bind(desc, esphome::ups_hid::VENDOR_TRIPP_LITE, 0x3024);
+
+  auto commands = mapper.commands();
+  CHECK_EQ(commands.size(), size_t(5));
+  CHECK(std::find(commands.begin(), commands.end(), "beeper.disable") != commands.end());
+  CHECK(std::find(commands.begin(), commands.end(), "test.battery.start.quick") != commands.end());
+
+  // Both control reports are polled, since writes start from the last read
+  bool polls_beeper = false, polls_test = false;
+  for (const auto &report : mapper.needed_reports()) {
+    polls_beeper |= report.type == ReportType::FEATURE && report.id == 0x11;
+    polls_test |= report.type == ReportType::FEATURE && report.id == 0x10;
+  }
+  CHECK(polls_beeper);
+  CHECK(polls_test);
+
+  esphome::ups_hid::HidReport report{};
+  std::vector<uint8_t> payload;
+  CHECK(!mapper.build_command("beeper.enable", &report, &payload));  // not read yet
+
+  const uint8_t muted = 3, no_test = 6;
+  mapper.update_report(ReportType::FEATURE, 0x11, &muted, 1);
+  mapper.update_report(ReportType::FEATURE, 0x10, &no_test, 1);
+  std::map<std::string, std::string> vars;
+  mapper.build(&vars);
+  CHECK_EQ(vars["ups.beeper.status"], std::string("muted"));
+  CHECK_EQ(vars["ups.test.result"], std::string("No test initiated"));
+
+  CHECK(mapper.build_command("beeper.enable", &report, &payload));
+  CHECK_EQ(report.id, uint8_t(0x11));
+  CHECK(report.type == ReportType::FEATURE);
+  CHECK_EQ(payload.size(), size_t(1));
+  if (!payload.empty())
+    CHECK_EQ(payload[0], uint8_t(2));
+
+  CHECK(mapper.build_command("test.battery.start.quick", &report, &payload));
+  CHECK_EQ(report.id, uint8_t(0x10));
+  if (!payload.empty())
+    CHECK_EQ(payload[0], uint8_t(1));
+
+  CHECK(!mapper.build_command("load.off", &report, &payload));
+}
+
+TEST(insert_preserves_neighbouring_bits) {
+  esphome::ups_hid::HidField field{};
+  field.bit_offset = 4;
+  field.bit_size = 3;
+  uint8_t payload[] = {0xFF};
+  CHECK(esphome::ups_hid::hid_insert(field, payload, 1, 2));
+  CHECK_EQ(int(payload[0]), int(0b10101111));
+  int32_t value = 0;
+  CHECK(esphome::ups_hid::hid_extract(field, payload, 1, &value));
+  CHECK_EQ(value, 2);
 }
 
 TEST(number_formatting_matches_nut_style) {

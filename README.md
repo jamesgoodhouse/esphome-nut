@@ -132,6 +132,7 @@ leave out `api:` entirely, there is nothing to turn off.
 | Option | Default | What it does |
 |---|---|---|
 | `update_interval` | `15s` | How often to read the UPS. Status changes the UPS pushes (power lost, battery low) arrive immediately. |
+| `allow_control` | `false` | Let Home Assistant and NUT clients change UPS settings and run commands (beeper, battery self-test). See [Controls](#controls-optional). |
 
 ### `nut_server`
 
@@ -144,6 +145,7 @@ leave out `api:` entirely, there is nothing to turn off.
 | `require_login` | `false` | `false`: anyone on your network can read UPS status (stock NUT behaviour). `true`: only listed users. |
 | `users` | none | Logins for clients. Each has `username`, `password` and `role`. |
 | `users: role` | `secondary` | `primary`: the one machine allowed to tell everyone else to shut down. `secondary`: monitors the UPS and shuts itself down. |
+| `users: allow_commands` | `false` | Lets this user run UPS commands over NUT (`INSTCMD`). Needs `allow_control: true` on `ups_hid`. |
 | `synology_compatible` | `false` | Adds Synology's built-in login (`monuser` / `secret`) as a secondary user. Requires `ups_name: ups`. |
 | `reboot_if_home_assistant_unreachable` | `false` | See [Works without Home Assistant](#works-without-home-assistant). |
 | `ups_hid_id` | automatic | Which UPS to serve; only needed if you have more than one. |
@@ -197,6 +199,44 @@ substitutions:
 For a different LED type, also set `status_led_chipset` (default `WS2812`) and
 `status_led_channel_colors` (default `GRB`). To change the colours, override the
 `ups_status_led_update` script in your own config.
+
+### Controls (optional)
+
+By default the UPS is only read. To change its settings from Home Assistant, add the `controls`
+package:
+
+```yaml
+packages:
+  ups: github://jamesgoodhouse/esphome-nut/packages/ups.yaml@main
+  controls: github://jamesgoodhouse/esphome-nut/packages/controls.yaml@main
+```
+
+It turns on `allow_control` and adds:
+
+| Entity | What it does |
+|---|---|
+| **Beeper** switch | On: the UPS beeps on outages and low battery. Off: it stays silent. |
+| **Mute alarm** button | Silences an alarm that is already sounding; the UPS beeps again at the next event. |
+| **Battery self-test** button | Runs a short battery test. |
+| **Self-test result** | e.g. "Done and passed". |
+
+If your UPS doesn't support one of these (e.g. it has no adjustable beeper), using it just logs a
+warning.
+
+NUT clients can run the same commands (`beeper.enable`, `beeper.disable`, `beeper.mute`,
+`test.battery.start.quick`, `test.battery.stop`), but only users you allow:
+
+```yaml
+nut_server:
+  users:
+    - username: admin
+      password: !secret nut_admin_password
+      allow_commands: true
+```
+
+Passwords travel unencrypted over NUT, so only give this to users on a network you trust. The
+Synology login never gets it. Commands that cut power to your equipment (`load.off`, shutdowns) are
+not offered.
 
 ### Reacting to status changes
 
@@ -267,7 +307,8 @@ power for 5 minutes, or when the ESP32 restarts.
 
 ## Not supported
 
-- Changing UPS settings or sending commands (beeper off, self-test, ...). The server is read-only.
+- Changing settings with `SET VAR`, and commands beyond the beeper and battery self-test (e.g. `load.off`,
+  `shutdown.return`).
 - UPSes that only have a serial (RS-232) port.
 - TLS (`STARTTLS`).
 

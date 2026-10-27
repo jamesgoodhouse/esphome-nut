@@ -25,6 +25,7 @@ api:
 ups_hid:
   id: my_ups
   update_interval: 15s  # how often to read the UPS; status changes the UPS pushes arrive immediately
+  allow_control: false  # true lets Home Assistant / NUT change the beeper and run battery self-tests
 
 nut_server:
   ups_hid_id: my_ups          # which UPS to serve (picked automatically when there is only one)
