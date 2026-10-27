@@ -65,6 +65,7 @@ class NutMapper {
   };
 
   bool read_field_(const HidField &field, int32_t *out) const;
+  double physical_(const Binding &binding, int32_t raw) const;
 
   std::vector<Binding> values_;
   FlagBinding flags_[FLAG_COUNT];

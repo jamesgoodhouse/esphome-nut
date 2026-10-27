@@ -1,5 +1,6 @@
 #include "quirks.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 
@@ -22,6 +23,17 @@ double quirk_scale(uint16_t vendor_id, uint16_t product_id, const char *nut_name
       return quirk.scale;
   }
   return 1.0;
+}
+
+double quirk_to_physical(uint16_t vendor_id, uint16_t product_id, const HidField &field, int32_t logical) {
+  (void) product_id;
+  if (vendor_id == VENDOR_TRIPP_LITE && field.unit != 0 && field.unit_exponent >= 1 && field.unit_exponent <= 3) {
+    // Tripp Lite writes UnitExponent +1 where it means 10^-1: on an ECO850LCD (09AE:3024) battery
+    // voltage 136 is 13.6 V and frequency 602 is 60.2 Hz. The same descriptor uses the standard
+    // exponent 7 for volts elsewhere (nominal battery voltage 12 = 12 V), which goes the normal way.
+    return static_cast<double>(logical) * std::pow(10.0, -field.unit_exponent);
+  }
+  return hid_to_physical(field, logical);
 }
 
 static bool get_number(const std::map<std::string, std::string> &vars, const char *name, double *out) {

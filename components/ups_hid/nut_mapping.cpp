@@ -178,7 +178,7 @@ void NutMapper::build(std::map<std::string, std::string> *vars) const {
         (*vars)[binding.nut_name] = state;
       continue;
     }
-    (*vars)[binding.nut_name] = format_nut_number(hid_to_physical(binding.field, raw) * binding.scale);
+    (*vars)[binding.nut_name] = format_nut_number(this->physical_(binding, raw));
   }
 
   bool have[FLAG_COUNT] = {};
@@ -237,10 +237,14 @@ std::vector<std::string> NutMapper::describe() const {
                   binding.nut_name, f.type == ReportType::INPUT ? "input" : "feature", f.report_id, f.bit_offset,
                   f.bit_size, static_cast<unsigned>(f.unit), f.unit_exponent,
                   have ? std::to_string(raw).c_str() : "?",
-                  have ? format_nut_number(hid_to_physical(f, raw) * binding.scale).c_str() : "?");
+                  have ? format_nut_number(this->physical_(binding, raw)).c_str() : "?");
     lines.emplace_back(line);
   }
   return lines;
+}
+
+double NutMapper::physical_(const Binding &binding, int32_t raw) const {
+  return quirk_to_physical(this->vendor_id_, this->product_id_, binding.field, raw) * binding.scale;
 }
 
 std::string format_nut_number(double value) {

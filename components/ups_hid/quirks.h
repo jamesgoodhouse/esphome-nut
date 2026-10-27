@@ -9,11 +9,17 @@
 #include <map>
 #include <string>
 
+#include "hid_parser.h"
+
 namespace esphome::ups_hid {
 
 constexpr uint16_t VENDOR_APC = 0x051D;
 constexpr uint16_t VENDOR_CYBERPOWER = 0x0764;
 constexpr uint16_t VENDOR_EATON = 0x0463;
+constexpr uint16_t VENDOR_TRIPP_LITE = 0x09AE;
+
+/// Physical value for a field, with any vendor fix for broken unit exponents applied.
+double quirk_to_physical(uint16_t vendor_id, uint16_t product_id, const HidField &field, int32_t logical);
 
 /// Fixed multiplier for one NUT variable on a device (pid 0 matches every product of the vendor).
 struct ScaleQuirk {

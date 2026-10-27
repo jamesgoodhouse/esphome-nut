@@ -290,6 +290,42 @@ TEST(describe_lists_scaling_for_each_value) {
   CHECK(found);
 }
 
+TEST(tripp_lite_eco850lcd_exponent_quirk) {
+  // Real descriptor and raw values from an ECO850LCD whose display showed about 120 V in, 60 Hz
+  std::ifstream file(std::string(FIXTURE_DIR) + "/tripplite_eco850lcd_09ae_3024.hex");
+  std::vector<uint8_t> bytes;
+  std::string token;
+  while (file >> token)
+    bytes.push_back(static_cast<uint8_t>(std::stoul(token, nullptr, 16)));
+  CHECK_EQ(bytes.size(), size_t(885));
+  HidDescriptor desc;
+  CHECK(desc.parse(bytes.data(), bytes.size()));
+  NutMapper mapper;
+  mapper.bind(desc, esphome::ups_hid::VENDOR_TRIPP_LITE, 0x3024);
+  CHECK(mapper.can_report_status());
+
+  auto feed16 = [&mapper](uint8_t id, uint16_t value) {
+    std::vector<uint8_t> payload(2);
+    put16(payload, 0, value);
+    mapper.update_report(ReportType::FEATURE, id, payload.data(), payload.size());
+  };
+  feed16(0x20, 136);   // battery voltage, exponent 1
+  feed16(0x04, 12);    // nominal battery voltage, exponent 7
+  feed16(0x31, 1195);  // input voltage
+  feed16(0x19, 602);   // input frequency
+  feed16(0x1B, 1184);  // output voltage
+  feed16(0x47, 76);    // real power, exponent 7
+
+  std::map<std::string, std::string> vars;
+  mapper.build(&vars);
+  CHECK_EQ(vars["battery.voltage"], std::string("13.6"));
+  CHECK_EQ(vars["battery.voltage.nominal"], std::string("12"));
+  CHECK_EQ(vars["input.voltage"], std::string("119.5"));
+  CHECK_EQ(vars["input.frequency"], std::string("60.2"));
+  CHECK_EQ(vars["output.voltage"], std::string("118.4"));
+  CHECK_EQ(vars["ups.realpower"], std::string("76"));
+}
+
 TEST(number_formatting_matches_nut_style) {
   CHECK_EQ(format_nut_number(100.0), std::string("100"));
   CHECK_EQ(format_nut_number(13.65), std::string("13.65"));
